@@ -6,25 +6,241 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-## R Markdown
+## Goal  
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+In this project, data from Netflix Original films is explored. You can find the Data [here](https://www.kaggle.com/luiscorter/netflix-original-films-imdb-scores?select=NetflixOriginals.csv). The dataset consists of all Netflix Original films released as of June 1st, 2021. Additionally, it also includes all Netflix documentaries and specials.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Included in the Dataset is:
 
-```{r cars}
-summary(cars)
+* Title of the film
+* Genre of the film
+* Original premiere date
+* Runtime in minutes
+* IMDB scores (as of 06/01/21)
+* Languages currently available (as of 06/01/21)
+
+The main goal of this project is to get ideas which variables have an impact on IMDB Rating. Since we have a comprehensive dataset (all Netflix Originals are included) and it is not part of this project to predict future IMDB ratings, only descriptive statistics will be used.
+
+## Loading packages
+
+
+```{r, message = FALSE, warning = FALSE}
+library(data.table)
+library(here)
+library(janitor)
+library(tidyverse)
+library(skimr)
+library(yarrr)
+library(lubridate)
+library(rstudioapi)
+library(effsize)
 ```
 
-## Including Plots
+The data was downloaded from kaggle and stored locally (login necessary). We will take a first look at the dataset:
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+#get data
+
+netflix <- fread(here("Data", "NetflixOriginals.csv"))
+
+skim(netflix)
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+There is no problem with missing data in the Dataset. The only two numeric variables in the dataset are IMDB Score and Runtime. We will focus mainly on IMDB Score in further analyses. 
+
+
+## Data Preprocessing
+
+Basic Preprocessing was done to clean variable names and prepare relevant variables for further analyses.
+
+```{r}
+
+# Clean variable names
+netflix <- clean_names(netflix)
+
+# Turn genre into lowercase
+netflix$genre <- tolower(netflix$genre)
+
+# have a look at unique genres
+head(netflix[,.(count = .N),by =genre][order(-count)], 20)
+
+# preprocess genre variable with the goal to get more entries in more common genres
+netflix[,`:=` (genre =  gsub(".*action.*", "action", genre)),]
+netflix[,`:=` (genre =  gsub(".*horror.*", "horror", genre)),]
+netflix[,`:=` (genre =  gsub(".*comedy.*", "comedy", genre)),]
+netflix[,`:=` (genre =  gsub(".*drama.*", "drama", genre)),]
+netflix[,`:=` (genre =  gsub(".*thriller.*", "thriller", genre)),]
+netflix[,`:=` (genre =  gsub(".*animation.*", "animation", genre)),]
+netflix[,`:=` (genre =  gsub(".*anime.*", "animation", genre)),]
+netflix[,`:=` (genre =  gsub(".*musical.*", "musical", genre)),]
+netflix[, genre_count := .(.N), by = genre]
+netflix[genre_count < 11, genre := "other"]
+netflix <- netflix[order(-imdb_score),]
+netflix$genre_count <- NULL
+
+#save data for later use in shiny app
+saveRDS(netflix, here("Shiny_App", "netflix_data.Rds"))
+
+```
+
+## Exploratory Analysis
+
+
+```{r}
+#look closer at distribution of IMDB Score
+
+ggplot(data = netflix, aes(x = imdb_score)) + 
+  geom_histogram(bins = 40) + 
+  theme_classic()
+
+```
+
+Distribution of IMDB Score looks approximately normal, but there seems to be also slight deviations from normality. Since effect sizes are used in futher analysis, we take a closer look at the assumption of normality with a QQ plot.
+
+```{r}
+#look closer at distribution of IMDB Score
+ggplot(netflix, aes(sample = imdb_score)) +
+stat_qq() + stat_qq_line() + 
+theme_classic()
+
+```
+
+
+As the data fall approximately along the reference line, the QQ plot gives further evidence of normality. 
+
+## IMDB Score by Genre
+
+We start the analysis by looking at the relationship of IMDB Score and Genre. Only the most popular Genres are used for this purpose.
+
+
+```{r}
+# subset of data with most used genres
+netflix_genres <- setorder(netflix[,.(.N), by = .(genre)], -N)
+popular_genres <- netflix_genres[N>20,genre]
+netflix_subset <- netflix[genre %in% popular_genres]
+
+
+#look at imdb score per genre
+pirateplot(imdb_score ~ genre,
+           data = netflix_subset,
+           gl.col = "white")
+
+
+```
+
+Documentaries have the highest IMDB average Scores from the common Netflix genres. The lowest average is in the horror genre. The average IMDB Scores of thriller, action and comedy films are also quite low in comparison to documentaries from Netflix. To get further information about the magnitude of this differences, Cohen's d is used as an effect size.
+
+```{r}
+# Compute effect sizes
+cohen.d(netflix[genre == "documentary", imdb_score], netflix[genre == "action", imdb_score])
+cohen.d(netflix[genre == "documentary", imdb_score], netflix[genre == "horror", imdb_score])
+cohen.d(netflix[genre == "documentary", imdb_score], netflix[genre == "drama", imdb_score])
+cohen.d(netflix[genre == "horror", imdb_score], netflix[genre == "drama", imdb_score])
+
+```
+
+In line with the first impression, there is a quite large difference between the average IMDB Scores from documentaries in comparison to the average IMDB Scores from other Genres like horror or action movies. Even when looking at the difference between documentaries and the second highest rated Genre (drama), we find a medium to large effect size (Cohen's d = 0.77). Therefore, Netflix user are especially satisifed with the quality of documentaries. Further analysis could be done on the possible reasons for the high perceived quality of Netflix documentaries. One possibility could be that other film studios simply do not allocate much money on the creation of documentaries.
+
+## IMDB Score by Runtime
+
+In the next step, the effect of runtime on IMDB Score is looked at.
+
+```{r}
+
+with(netflix, plot(runtime, imdb_score))
+abline(lm(imdb_score ~ runtime, data = netflix), col = "blue")
+
+```
+
+From the first impression, there is no systematic pattern in the scatterplot. In line with this observation, the regression line is rather flat. Since a correlation coefficient like the Pearson correlation coefficient is also an effect size, we will have a look at the absolute size of this measure. From the plot, we already have the information that the size of the correlation coefficient should be quite small.
+
+```{r}
+with(netflix, cor(runtime, imdb_score))
+
+```
+
+The correlation coefficient is -0.04 and therfore very small. There is no meaningfull relationship between runtime and IMDB Score. 
+
+## IMDB Score by language
+
+Another variable which could likely have a relationship with IMDB Score is the language. It seems likely that English movies are higher rated, since the movie industrie is most developed in the United States. We will have a closer look at this assumption by comparing the average IMDB Scores of the five most common languages.
+
+```{r}
+
+popular_languages <- setorder(netflix[,.(.N),by = language], -N)[1:5,language]
+netflix_lan <- netflix[language %in% popular_languages]
+
+#have a look at imdb_score by language
+pirateplot(formula = imdb_score ~ language,
+           data = netflix_lan,
+           gl.col = "white")
+
+```
+
+English movies are indeed the highest ratest movies along the most popular languages, but Spanish movies are rated quite similar in regard to quality. The perceived quality from Italian, French and Hindi Movies are lower in comparison to English and Spanish Movies. Effect sizes are used again to get further information about the magnitude of differences found.
+
+```{r}
+
+cohen.d(netflix_lan[language == "English", imdb_score], netflix_lan[language == "Spanish", imdb_score])
+cohen.d(netflix_lan[language == "English", imdb_score], netflix_lan[language == "Italian", imdb_score])
+cohen.d(netflix_lan[language == "English", imdb_score], netflix_lan[language == "Hindi", imdb_score])
+cohen.d(netflix_lan[language == "Hindi", imdb_score], netflix_lan[language == "Italian", imdb_score])
+
+```
+
+We get a negligible Cohen's d when comparing English to Spanish movies in regard to IMDB Scores. The magnitude of the difference between English and Italian movies can be described as large, whereas the difference between Hindi movies and Italian movies is small to medium. In summary, we do have meaningufull differences between the perceived quality from movies in different languages. 
+
+## IMDB Score by Time
+
+In the last section, we will look how the IMDB Scores envolved over time. We will start with the year 2016, since there was only one Movie published in 2014 and only nine Movies published in 2015.
+
+```{r}
+
+netflix[,premiere := mdy(premiere)]
+netflix[,year := year(premiere)]
+netflix_year <- setorder(netflix[,.(.N),by = year], year)
+netflix_year
+netflix_year <- netflix_year[N>29,year]
+netflix_subset3 <- netflix[year %in% netflix_year]
+
+pirateplot(imdb_score ~ year, 
+           data = netflix_subset3,
+           gl.col = "white")
+```
+
+Surprisingly, we can see a constant negative trend from the IMDB Scores over time. Simultaneously, the number of published movies is increasing constantly (except of 2021, where we only have data from the first half). One possible reason for this could be that Netflix is changing its strategy to publishing more movies in many languages with fewer money allocated to each movie production. Unfortunately, this possible explanation can't be further analyzed with the data at hand, since the dataset used for this analysis does not cover the amount spend on each movie production. 
+
+Another reason for the decrease of IMDB Ratings could be that fewer documentaries are published in more recent years, since Documentaries are the best rated movie Genre. We can have a closer look whether this is actually the case:
+
+```{r}
+#see of there is a difference on the number of documentaries over the years, since these are best rated
+netflix_subset3[order(year),.(per_documentaries = sum(genre=="documentary")/.N),by=year]
+```
+
+In line with the reasing above, the relative number of documentaries published is increasing in the more recent years. Therefore, the question arises whether we see the decrease in IMDB Scores over the years still if we exclude documentaries.
+
+```{r}
+#see changes over years without documentaries
+pirateplot(imdb_score ~ year, theme = 1, 
+           data = netflix_subset3[genre != "documentary"], 
+           gl.col = "white")
+```
+
+Indeed, the decreasing trend is less clear over the years after excluding documentaries. The explanation that the lower portion of documentaries in more recent years do contribute to the slightly negative trend in IMDB Scores over time gets first evidence. 
+
+## Conclusion
+
+The main goal of this project was to get an overview about which variables have an impact on IMDB Scores from Netflix Original films published before June 2021. We found that there are large differences in the IMDB Ratings of different genres, with documentaries reaching the highest average IMDB Score of popular genres. Aside from genre, there are also meaningfull differences in the IMDB Scores depending on the languages of the film. Here, we find the highest average Scores in English and Spanish films. The effect of runtime on IMDB Rating is negligible on the other hand. 
+Regarding time, we see a constant decrease of average IMDB Ratings in more recent years.
+
+&nbsp; 
+
+&nbsp; 
+
+
