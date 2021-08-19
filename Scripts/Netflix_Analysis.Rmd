@@ -1,5 +1,5 @@
 ---
-title: "Netflix_Analysis"
+title: "Netflix Analysis"
 author: "Stefan Werner"
 date: "18 8 2021"
 output: html_document
@@ -11,7 +11,7 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 
 ## Goal  
 
-In this project, data from Netflix Original films is explored. You can find the Data [here](https://www.kaggle.com/luiscorter/netflix-original-films-imdb-scores?select=NetflixOriginals.csv). The dataset consists of all Netflix Original films released as of June 1st, 2021. Additionally, it also includes all Netflix documentaries and specials.
+In this project, data from Netflix Original films is explored. You can find the Data [here](https://www.kaggle.com/luiscorter/netflix-original-films-imdb-scores?select=NetflixOriginals.csv) and an interactive Dashboard with this Dataset created by me [here](https://swerner1896.shinyapps.io/Netflix_Analysis/). The dataset consists of all Netflix Original films released as of June 1st, 2021. Additionally, it also includes all Netflix documentaries and specials.
 
 Included in the Dataset is:
 
